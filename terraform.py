@@ -33,6 +33,14 @@ Environment Variables:
         Sets the workspace for the `terraform` command when the scripts shells
         out to it, defaults to `default` workspace - if you don't use workspaces
         this is the one you'll be using.
+
+    ANSIBLE_TF_S3_STATE_PATH
+        Sets the S3 backet as backend with state. If this variable is set 
+        ANSIBLE_TF_DIR will be ignored. It must be full path to terraform state
+        like s3://my-backend-bucket/terraform.tfstate
+
+    ANSIBLE_TF_S3_ENDPOINT_URL
+        HTTTP endpoint of the cloud with your backend bucket
 '''
 
 import sys
@@ -45,6 +53,8 @@ from subprocess import Popen, PIPE
 TERRAFORM_PATH = os.environ.get('ANSIBLE_TF_BIN', 'terraform')
 TERRAFORM_DIR = os.environ.get('ANSIBLE_TF_DIR', os.getcwd())
 TERRAFORM_WS_NAME = os.environ.get('ANSIBLE_TF_WS_NAME', 'default')
+TERRAFORM_S3 = os.environ.get('ANSIBLE_TF_S3_STATE_PATH', None)
+TERRAFORM_S3_ENDPOINT_URL = os.environ.get('ANSIBLE_TF_S3_ENDPOINT_URL', None)
 
 
 class TerraformState(object):
@@ -369,8 +379,40 @@ class AnsibleGroup(object):
         }
 
 
+def _get_state_tf_dir():
+    tf_command = [TERRAFORM_PATH, 'state', 'pull']
+    proc_tf_cmd = Popen(tf_command, cwd=TERRAFORM_DIR,
+                        stdout=PIPE, stderr=PIPE, universal_newlines=True)
+    out_cmd, err_cmd = proc_tf_cmd.communicate()
+    if err_cmd != '':
+        sys.stderr.write(str(err_cmd)+'\n')
+        sys.exit(1)
+    else:
+        return json.loads(out_cmd.encode('utf-8'))
+
+
+def _get_state_s3():
+    s3_command = ['aws', 's3', 'cp', TERRAFORM_S3, 'tmp_tf_state']
+    if TERRAFORM_S3_ENDPOINT_URL is not None:
+        s3_command.insert(1, "--endpoint-url")
+        s3_command.insert(2, TERRAFORM_S3_ENDPOINT_URL)
+
+    proc_s3_cmd = Popen(s3_command, 
+                        stdout=PIPE, stderr=PIPE, universal_newlines=True)
+    _, err_cmd = proc_s3_cmd.communicate()
+    if err_cmd != '':
+        sys.stderr.write(str(err_cmd)+'\n')
+        sys.exit(1)
+    
+    with open('tmp_tf_state', 'r') as tm_tf_state_content:
+        tf_state = tm_tf_state_content.read()
+    
+    os.remove('tmp_tf_state')
+
+    return json.loads(tf_state.encode('utf-8'))
+
+
 def _execute_shell():
-    encoding = 'utf-8'
     tf_workspace = [TERRAFORM_PATH, 'workspace', 'select', TERRAFORM_WS_NAME]
     proc_ws = Popen(tf_workspace, cwd=TERRAFORM_DIR, stdout=PIPE,
                     stderr=PIPE, universal_newlines=True)
@@ -379,15 +421,10 @@ def _execute_shell():
         sys.stderr.write(str(err_ws)+'\n')
         sys.exit(1)
     else:
-        tf_command = [TERRAFORM_PATH, 'state', 'pull']
-        proc_tf_cmd = Popen(tf_command, cwd=TERRAFORM_DIR,
-                            stdout=PIPE, stderr=PIPE, universal_newlines=True)
-        out_cmd, err_cmd = proc_tf_cmd.communicate()
-        if err_cmd != '':
-            sys.stderr.write(str(err_cmd)+'\n')
-            sys.exit(1)
+        if TERRAFORM_S3 is not None:
+            return _get_state_s3()
         else:
-            return json.loads(out_cmd, encoding=encoding)
+            return _get_state_tf_dir()
 
 
 def _main():

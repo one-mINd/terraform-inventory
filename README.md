@@ -28,6 +28,14 @@ Set the working directory for the `terraform` command when the scripts shells ou
 Sets the workspace for the `terraform` command when the scripts shells out to it, defaults to `default` workspace - if you don't use workspaces this is the one you'll be using. 
 
 
+### ANSIBLE\_TF\_S3\_STATE\_PATH
+
+Sets the S3 backet as backend with state. If this variable is set ANSIBLE_TF_DIR will be ignored. It must be full path to terraform state like s3://my-backend-bucket/terraform.tfstate
+
+### ANSIBLE\_TF\_S3\_ENDPOINT\_URL
+
+HTTTP endpoint of the cloud with your backend bucket
+
 ## License
 
 Licensed for use under the [MIT License](./LICENSE).
